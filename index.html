@@ -223,6 +223,7 @@ body.noscroll{overflow:hidden}
 .terx p{font-size:15.5px;margin:6px 0}
 body.terrain .top{display:none}
 @media print{.tbar,.boxf,.addb,.exa,.empty2 button{display:none!important}.exd input{display:none}.pdose{display:inline;font-weight:600}.nb{display:none}.box{break-inside:avoid;border-color:#bbb}.part{break-inside:auto}}
+.note{background:#FEF3C7;color:#5B3B00;border-radius:10px;padding:8px 12px;font-size:14px;margin:8px 0}
 </style>
 <header class="top"><div class="topin">
   <button class="ib" id="back" type="button" aria-label="Retour">‹</button>
@@ -272,6 +273,30 @@ const MiniPDF = (()=>{
     return "download";
   }
   return {Doc, deliver, width};
+})();
+
+/* ===== PARTAGE PAR LIEN : l'objet voyage dans l'adresse (#x/…), compressé quand l'appareil le permet ===== */
+const Partage = (()=>{
+  const toB64=u8=>{ let s=""; for(let i=0;i<u8.length;i+=0x8000) s+=String.fromCharCode.apply(null,u8.subarray(i,i+0x8000)); return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); };
+  const fromB64=s=>{ const b=atob(s.replace(/-/g,"+").replace(/_/g,"/")); const u=new Uint8Array(b.length); for(let i=0;i<b.length;i++) u[i]=b.charCodeAt(i); return u; };
+  async function pipe(u8,T){ const st=new Blob([u8]).stream().pipeThrough(T); return new Uint8Array(await new Response(st).arrayBuffer()); }
+  async function enc(obj){
+    const raw=new TextEncoder().encode(JSON.stringify(obj));
+    try{ if(window.CompressionStream) return "z"+toB64(await pipe(raw,new CompressionStream("deflate-raw"))); }catch(e){}
+    return "p"+toB64(raw);
+  }
+  async function dec(code){
+    const k=code[0], u=fromB64(code.slice(1));
+    const raw = k==="z" ? await pipe(u,new DecompressionStream("deflate-raw")) : u;
+    return JSON.parse(new TextDecoder().decode(raw));
+  }
+  async function envoyer(obj,titre,texte,openSheet,esc){
+    const url=location.origin+location.pathname+"#x/"+await enc(obj);
+    try{ if(navigator.share){ await navigator.share({title:titre,text:texte,url}); return; } }catch(e){ if(e&&e.name==="AbortError") return; }
+    let ok=false; try{ await navigator.clipboard.writeText(url); ok=true; }catch(e){}
+    openSheet(`<div class="shh"><b>${esc(titre)}</b><button class="ib" data-close type="button">×</button></div><p class="msg">${ok?"Lien copié. ":""}Colle ce lien dans un message : il ouvre directement la même chose sur le téléphone de la personne.</p><textarea class="srch" rows="5" readonly>${esc(url)}</textarea>`);
+  }
+  return {enc,dec,envoyer};
 })();
 
 /* ===== APPLI 3 : CRÉATION DE SÉANCES (structure automatique, exos choisis par l'entraîneur) ===== */
@@ -330,7 +355,7 @@ const STOP=new Set("avant apres entre puis chaque toujours selon leurs notre vot
 
 /* ---------- classement des exos pour une case ---------- */
 function okEx(e,c){
-  if(e.a>c.age) return false;
+  if(e.a>c.age || (e.ax && e.ax<c.age)) return false;
   if(e.c && c.lieu!=="court") return false;
   if(e.e && c.lieu==="salle") return false;
   for(const m of e.m) if(!c.mat.has(m)) return false;
@@ -385,12 +410,12 @@ function structure(s){
   const boxes=[];
   // échauffement : 5 étapes fixes
   const wT=Math.max(10,Math.min(20,Math.round(D*(tennis?0.18:0.22))));
-  boxes.push(box("Mise en route","E",{f:["5.2.1","5.2.6"],kw:/trot|marche|course|footing|navette|mise en route|jumping|corde|poursuite/,low:1}));
-  boxes.push(box("Mobilité","E",{f:["5.1.21","5.1.22","5.1.23"],low:1}));
-  boxes.push(box("Activation et prévention","E",{f:["5.2.2","5.2.3","5.2.4","5.1.5","5.2.9"],prev:1,low:1}));
-  boxes.push(box("Gammes et vitesse","E",{f:["5.2.1","5.1.16","5.1.11","5.4.1"],kw:/gamme|montee|talons|pas chasse|skipping|depart|griffe|rythme/,low:1}));
+  boxes.push(box("Mise en route","E",{f:["5.6.1","5.2.1","5.2.6"],kw:/trot|marche|course|footing|navette|mise en route|jumping|corde|poursuite/,low:1}));
+  boxes.push(box("Mobilité","E",{f:["5.6.2","5.1.21","5.1.22","5.1.23"],low:1}));
+  boxes.push(box("Activation et prévention","E",{f:["5.6.3","5.2.2","5.2.3","5.2.4","5.1.5","5.2.9"],prev:1,low:1}));
+  boxes.push(box("Gammes et vitesse","E",{f:["5.6.4","5.6.6","5.2.1","5.1.16","5.1.11","5.4.1"],kw:/gamme|montee|talons|pas chasse|skipping|depart|griffe|rythme/,low:1}));
   const specL = tennis ? [...GEL,...DEL] : PPL;
-  boxes.push(box("Spécifique au thème","E",tennis?{f:["5.3.7","5.3.14","5.3.15","5.4.1"],L:specL,low:1}:{f:specL.flatMap(famsOfLine),L:specL,low:1}));
+  boxes.push(box("Spécifique au thème","E",tennis?{f:["5.6.5","5.3.7","5.3.14","5.3.15","5.4.1"],L:specL,low:1}:{f:specL.flatMap(famsOfLine),L:specL,low:1}));
   const wb=boxes.filter(b=>b.part==="E"); wb.forEach((b,i)=>b.min=Math.floor(wT/5)+(i<wT%5?1:0));
   // corps de séance
   const nC=D<=40?2:D<=60?3:D<=80?4:5, corps=[];
@@ -570,13 +595,16 @@ function showSeance(id){
   <div class="dochead"><div><h1>${esc(s.nom||"Séance")}</h1>
    <p class="lead">${TYPES[s.type].n} · ${frD(s.date)} · ${PHASES[s.phase]} · ${J.length?esc(J.map(j=>j.nom).join(", "))+(s.libre.extra?" + "+s.libre.extra:""):c.n+" joueur"+(c.n>1?"s":"")+", "+c.age+" ans"} · ${LIEUX[s.lieu]}</p>
    ${s.theme?`<p class="thm">${esc(s.theme)}</p>`:""}${s.lignes.length?`<p>${s.lignes.map(chip).join(" ")}</p>`:""}</div>
-   <div class="acts noprint"><a class="ib" href="#r/${s.id}">Réglages</a><a class="ib" href="#t/${s.id}">Mode terrain</a><button class="ib" id="prt" type="button">Imprimer / PDF</button></div></div>
+   <div class="acts noprint"><a class="ib" href="#r/${s.id}">Réglages</a><a class="ib" href="#t/${s.id}">Mode terrain</a><button class="ib" id="prt" type="button">Imprimer / PDF</button><button class="ib" id="snd" type="button">📲 Envoyer</button></div></div>
+   ${s.recu?`<p class="note">Séance reçue${s.recu!==true?" pour "+esc(s.recu):""}.</p>`:""}
   <div class="tbar noprint"><b>${tot} / ${s.duree} min</b> <span class="${rest<0?"neg":""}">${rest===0?"temps complet":rest>0?"reste "+rest+" min":"dépasse de "+(-rest)+" min"}</span>${c.zones.length||c.crois?` · vigilance : ${[...c.zones.map(z=>ZN[z]),...(c.crois?["croissance"]:[])].join(", ")}`:""}</div>
   ${["E","C","F"].map(p=>`<section class="sec part"><h2>${PARTS[p]} <small class="sm2">${s.boxes.filter(b=>b.part===p).reduce((a,b)=>a+(+b.min||0),0)} min</small></h2>
    ${s.boxes.map((b,bi)=>b.part===p?boxHtml(s,b,bi):"").join("")}
    <button class="ib noprint addb" type="button" data-addp="${p}">+ Ajouter une case</button></section>`).join("")}
   <div class="tools noprint" style="margin-top:20px"><button class="ib" id="dup" type="button">Dupliquer</button><button class="ib" id="del" type="button">Supprimer</button></div>`;
   $("#prt").onclick=()=>pdfSeance(s);
+  $("#snd").onclick=()=>{ const c=ctxOf(s), J=joueurs().filter(j=>s.joueurs.includes(j.id)); const o=JSON.parse(JSON.stringify(s)); o.joueurs=[]; o.src=null; o.libre={...o.libre,age:c.age,n:c.n,zones:c.zones,crois:c.crois}; o.recu=J.map(j=>j.nom.split(" ")[0]).join(", ")||true;
+    Partage.envoyer({v:1,s:o},"Séance : "+(s.nom||"séance"),`Séance « ${s.nom||""} » du ${frD(s.date)} : ouvre ce lien.`,openSheet,esc); };
   $$("[data-pick]").forEach(b=>b.onclick=()=>picker(s,+b.dataset.pick,b.dataset.slot!=null?+b.dataset.slot:null));
   $$("[data-fiche]").forEach(b=>b.onclick=()=>fiche(b.dataset.fiche));
   $$("[data-rm]").forEach(b=>b.onclick=()=>{ const [bi,ei]=b.dataset.rm.split(":").map(Number); const B=s.boxes[bi]; if(B.at) B.ex[ei]=null; else B.ex.splice(ei,1); upd(s); });
@@ -729,11 +757,18 @@ function showTerrain(id,k){
   $$("[data-fiche]").forEach(x=>x.onclick=()=>fiche(x.dataset.fiche));
 }
 
+/* ---------- SÉANCE REÇUE PAR LIEN ---------- */
+async function recevoir(code){
+  try{ const d=await Partage.dec(code); const s=d.s; s.id=uid(); s.maj=todayIso(); ST.seances.push(s); saveNow(); location.replace("#s/"+s.id); }
+  catch(e){ main.innerHTML=`<div class="empty">Ce lien de séance est abîmé. Demande qu'on te le renvoie.</div>`; }
+}
+
 /* ---------- ROUTAGE ---------- */
 function route(){
   clearInterval(TIMER); closeSheet();
   const [a,b,c]=location.hash.slice(1).split("/").map(decodeURIComponent);
   document.body.classList.toggle("terrain",a==="t");
+  if(a==="x"&&b){ recevoir(b); return; }
   if(a==="r"&&b) showReglages(b); else if(a==="s"&&b) showSeance(b); else if(a==="pl"&&b) showPlanList(b); else if(a==="p"&&b) fromPlan(b,c); else if(a==="t"&&b) showTerrain(b,c); else showHome();
   if(a!=="s") scrollTo(0,0);
   $("#back").style.visibility=a?"visible":"hidden";
